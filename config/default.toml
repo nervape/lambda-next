@@ -1,229 +1,129 @@
-[websocket]
-url = "wss://ckb-sub-ws.nervape.com"  # WebSocket URL for CKB node
-reconnect_interval = 5000    # milliseconds
-ping_interval = 30000        # milliseconds
+[rpc]
+urls = [
+    "https://mainnet.ckbapp.dev/",
+    "https://mainnet.ckb.dev/",
+]
+connect_timeout_secs = 5
+request_timeout_secs = 30
+max_retries = 2
+retry_interval_millis = 1000
 
 [ckb]
-type_script_code_hash = "0x4a4dce1df3dffff7f8b2cd7dff7303df3b6150c9788cb75dcf6747247132b9f5"  # Example code hash (Spore)
-type_script_hash_type = "data1"     # Can be "type" or "data1"
-query_limit = 300                   # Number of cells to fetch per query
-query_interval_secs = 10            # Number of seconds to wait between queries
-network_type = "mainnet"            # Network type: "mainnet", "testnet", or "devnet"
+type_script_code_hash = "0x4a4dce1df3dffff7f8b2cd7dff7303df3b6150c9788cb75dcf6747247132b9f5"
+type_script_hash_type = "data1"
+query_limit = 300
+query_interval_secs = 60
+network_type = "mainnet"
+sync_start_block = 0
+confirmations = 12
+overlap_blocks = 24
+block_batch_size = 100000
 
-# Database configuration
 [database]
-enabled = true  # Set to true to enable database storage
-url = "postgres://postgres:postgres@db:5432/spore_db"  # PostgreSQL connection string for Docker
-max_connections = 5  # Maximum number of connections in the pool
+enabled = true
+url = "postgres://postgres:postgres@db:5432/spore_db"
+max_connections = 5
 
-# DOB decoder configuration
 [dob_decoder]
-enabled = true  # Set to true to enable DOB decoding
-url = "https://api.nervape.com/decoder"  # DOB decoder JSON-RPC endpoint
-batch_size = 50  # Maximum number of spores to decode in a single batch request
-
-[[spore_filters]]
-name = "Nervape Collection Filter"
 enabled = true
-filter_by_cluster = false
-cluster_id = ""
-filter_by_type_ids = true
-type_ids = []                        # No inline Type IDs, all from JSON file
-type_ids_file = "config/NervapeInfo.json" # JSON file with Type IDs from typeInfo.args
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+url = "https://api.nervape.com/decoder"
+batch_size = 50
 
-
-[[spore_filters]]
-name = "Nervape Handheld"
-enabled = true
-filter_by_cluster = true
+[[spore_sync.clusters]]
 cluster_id = "0xc62fc8d75b8fb5b3f7c65f4dfc4063488d02f2480366c5010825b90c363c1a5d"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+sync_start_block = 13159260
 
-# NERVAPE GEARS COLLECTION
-
-[[spore_filters]]
-name = "Nervape Handheld"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0xc62fc8d75b8fb5b3f7c65f4dfc4063488d02f2480366c5010825b90c363c1a5d"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Accessory"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x57de7ae055fa69b9bcf949ffeda3f73495f63fd88252c2e5812acfbac100225a"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Headwear"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x1a2ca0c10daadb9f9e087283fecdc72c136dfd0d050d8041f2d4a4cf012d5149"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Eyewear"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x482cc386a3d6ed2a5f645a31d8198cbb3be2b7151d53c80468ecbc2c97d6da60"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Lower Body"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x4321a4e5201ad5abba69962a3aec78ff5c1af489af7db28614314258850f7ccf"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Upper Body"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x29c1012f72d916461c9dabcca1315b9e6082ed179210214c1fa335ae66719818"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Mouth"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0xbe655dc598f3cdc23ce935e76d827288e460e3cf62f8bc9b2f5c59b47a4750da"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Eears"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0xf2d14e1d6e57faaea4140ac52724a8e1e8e7d8a254e49b4aa2eebb9a051a2680"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Mask"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x95a56c18700cbc3f4e98895fe7063094f592fd89964d49ba5a5c1da1f66b7169"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
-
-[[spore_filters]]
-name = "Nervape Tattoo"
-enabled = true
-filter_by_cluster = true
+[[spore_sync.clusters]]
 cluster_id = "0x6e6c9500958d3962d880a50ba792d3a3f408533e10666751a141148a6bf01938"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+sync_start_block = 13159260
 
-[[spore_filters]]
-name = "Nervape Suit"
-enabled = true
-filter_by_cluster = true
+[[spore_sync.clusters]]
 cluster_id = "0xff52ecebc641a51442aea621c1070c4188a4eaadbc935d6183d2d8f76a806961"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+sync_start_block = 13159260
 
-[[spore_filters]]
-name = "Nervape Special"
-enabled = true
-filter_by_cluster = true
+[[spore_sync.clusters]]
 cluster_id = "0x2ad4ccda1ed89c119dfd0b002532c0044ccc68e26e113731260d3123fb16417e"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+sync_start_block = 13159260
 
-[[spore_filters]]
-name = "Nervape Background"
-enabled = true
-filter_by_cluster = true
+[[spore_sync.clusters]]
 cluster_id = "0x7974d8a776d21610f20ba0860ee7995b0ec2aee0e027c40f0dfbbecb990f5754"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+sync_start_block = 13159260
 
-[[spore_filters]]
-name = "Nervape's .bit"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x12349dbaf907893a26b2da0c3e0fafd8adf863d8a63dde361e427266d4c55deb"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+[[spore_sync.clusters]]
+cluster_id = "0x57de7ae055fa69b9bcf949ffeda3f73495f63fd88252c2e5812acfbac100225a"
+sync_start_block = 13159260
 
-[[spore_filters]]
-name = "Chinese Mahjong"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0xc22de62b3933f741e203714a189a2f468779e384fa33307fb9902d11aa648080"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+[[spore_sync.clusters]]
+cluster_id = "0x1a2ca0c10daadb9f9e087283fecdc72c136dfd0d050d8041f2d4a4cf012d5149"
+sync_start_block = 13159260
 
+[[spore_sync.clusters]]
+cluster_id = "0x482cc386a3d6ed2a5f645a31d8198cbb3be2b7151d53c80468ecbc2c97d6da60"
+sync_start_block = 13159260
 
-[[spore_filters]]
-name = "Nervape 3X"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x26a1fe3f4e84ae2cd1dc3e319ca416e27624c5ebe2f1b0aa731ca18d67784c4c"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+[[spore_sync.clusters]]
+cluster_id = "0x4321a4e5201ad5abba69962a3aec78ff5c1af489af7db28614314258850f7ccf"
+sync_start_block = 13159260
 
+[[spore_sync.clusters]]
+cluster_id = "0x29c1012f72d916461c9dabcca1315b9e6082ed179210214c1fa335ae66719818"
+sync_start_block = 13159260
 
-[[spore_filters]]
-name = "Nervape Original"
-enabled = true
-filter_by_cluster = true
-cluster_id = "0x86d17c984e0c4db51b66aae0ef781eab884312b86e39f0211e02dc0463de4710"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+[[spore_sync.clusters]]
+cluster_id = "0xbe655dc598f3cdc23ce935e76d827288e460e3cf62f8bc9b2f5c59b47a4750da"
+sync_start_block = 13159260
 
-[[spore_filters]]
-name = "Nervape Original DNA"
-enabled = true
-filter_by_cluster = true
+[[spore_sync.clusters]]
+cluster_id = "0xf2d14e1d6e57faaea4140ac52724a8e1e8e7d8a254e49b4aa2eebb9a051a2680"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0x95a56c18700cbc3f4e98895fe7063094f592fd89964d49ba5a5c1da1f66b7169"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0x9c1cf669442a028103cad995482dbdf385c5729c0dc26b04a8571498ff7bb1f3"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
 cluster_id = "0xe390b005ed762d642fae51e33c27386d8dbba21fce03ef0cacd50c71d6c88850"
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0x12349dbaf907893a26b2da0c3e0fafd8adf863d8a63dde361e427266d4c55deb"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0xc22de62b3933f741e203714a189a2f468779e384fa33307fb9902d11aa648080"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0x476051de35354491c34ae9d6e80cd95cdade75dabcc435cb2cf4b9795415abbf"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0x86d17c984e0c4db51b66aae0ef781eab884312b86e39f0211e02dc0463de4710"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0x24a6cbf8ea451761a229e5b25a377abda5901b9888ce623e3c72e9d707eb02be"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0x062d7696508465b4f00eadc16f9898afa255f64b5d8a6d90919826b1f9e4d58d"
+sync_start_block = 13159260
+
+[[spore_sync.clusters]]
+cluster_id = "0x26a1fe3f4e84ae2cd1dc3e319ca416e27624c5ebe2f1b0aa731ca18d67784c4c"
+sync_start_block = 13159260
+
+
+# Nervape 3x Individual Artist
+[[spore_sync.clusters]]
+cluster_id = "0x638a02abfe6a08ee9d3e4c96b48f6edb8ac55d4811453a97680dcd0aad9f16e8"
+sync_start_block = 20759208
+
+# Nervape
+[[spore_sync.clusters]]
+cluster_id = "0xd5852c19fa4fa394d64915cafe026cdeb702ce53cf2b839c6ace501e8dead41c"
+sync_start_block = 12836340

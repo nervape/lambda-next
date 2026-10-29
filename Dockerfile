@@ -1,4 +1,7 @@
-FROM rust:1.85-slim as builder
+ARG RUST_IMAGE=rust:1.85-slim
+ARG RUNTIME_IMAGE=debian:bookworm-slim
+
+FROM ${RUST_IMAGE} AS builder
 
 WORKDIR /usr/src/app
 
@@ -19,13 +22,13 @@ COPY spore-api-server/src ./spore-api-server/src
 RUN cargo build --release
 
 # Runtime stage
-FROM rust:1.85-slim
+FROM ${RUNTIME_IMAGE}
 
 WORKDIR /app
 
 # Install runtime dependencies
 RUN apt-get update && \
-    apt-get install -y libssl-dev ca-certificates && \
+    apt-get install -y --no-install-recommends libssl3 ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary from the builder stage
@@ -35,4 +38,4 @@ COPY --from=builder /usr/src/app/target/release/lambda_next .
 COPY config/default.toml ./config/default.toml
 
 # Set the entrypoint
-CMD ["./lambda_next"] 
+CMD ["./lambda_next"]

@@ -4,18 +4,49 @@ use std::error::Error;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    pub websocket: WebSocketConfig,
+    pub rpc: RpcConfig,
     pub ckb: CkbConfig,
-    pub spore_filters: Vec<SporeFilterConfig>,
+    pub spore_sync: SporeSyncConfig,
     pub database: Option<DatabaseConfig>,
     pub dob_decoder: Option<crate::dob_decoder::DobDecoderConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct WebSocketConfig {
-    pub url: String,
-    pub reconnect_interval: u64,
-    pub ping_interval: u64,
+pub struct SporeSyncConfig {
+    pub clusters: Vec<ClusterSyncConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+pub struct ClusterSyncConfig {
+    pub cluster_id: String,
+    #[serde(default)]
+    pub sync_start_block: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RpcConfig {
+    pub urls: Vec<String>,
+    #[serde(default = "default_connect_timeout_secs")]
+    pub connect_timeout_secs: u64,
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+    #[serde(default = "default_retry_interval_millis")]
+    pub retry_interval_millis: u64,
+}
+
+fn default_connect_timeout_secs() -> u64 {
+    5
+}
+fn default_request_timeout_secs() -> u64 {
+    30
+}
+fn default_max_retries() -> u32 {
+    2
+}
+fn default_retry_interval_millis() -> u64 {
+    1_000
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -25,6 +56,26 @@ pub struct CkbConfig {
     pub query_limit: u32,
     pub query_interval_secs: u64,
     pub network_type: NetworkTypeConfig,
+    #[serde(default)]
+    pub sync_start_block: u64,
+    #[serde(default = "default_confirmations")]
+    pub confirmations: u64,
+    #[serde(default = "default_overlap_blocks")]
+    pub overlap_blocks: u64,
+    #[serde(default = "default_block_batch_size")]
+    pub block_batch_size: u64,
+}
+
+fn default_confirmations() -> u64 {
+    12
+}
+
+fn default_overlap_blocks() -> u64 {
+    24
+}
+
+fn default_block_batch_size() -> u64 {
+    100_000
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -45,17 +96,21 @@ impl From<NetworkTypeConfig> for NetworkType {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+impl NetworkTypeConfig {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NetworkTypeConfig::Mainnet => "mainnet",
+            NetworkTypeConfig::Testnet => "testnet",
+            NetworkTypeConfig::Devnet => "devnet",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SporeFilterConfig {
     pub name: String,
     pub enabled: bool,
-    pub filter_by_cluster: bool,
     pub cluster_id: String,
-    pub filter_by_type_ids: bool,
-    pub type_ids: Vec<String>,
-    pub type_ids_file: Option<String>,
-    pub skip_decoding: bool,
-    pub exclude_cluster_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

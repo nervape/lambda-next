@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   db:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     container_name: spore-db
     restart: always
     environment:
@@ -25,6 +23,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        RUST_IMAGE: ${RUST_IMAGE:-rust:1.85-slim}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-debian:bookworm-slim}
     container_name: lambda-mainnet
     depends_on:
       db:
@@ -36,26 +37,14 @@ services:
       - LAMBDA_NEXT__DATABASE__URL=postgres://postgres:postgres@db:5432/spore_db
     command: ["./lambda_next"]
 
-  lambda-mainnet-low-tier:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: lambda-mainnet-low-tier
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: always
-    volumes:
-      - ./config/generic.toml:/app/config/default.toml
-    environment:
-      - LAMBDA_NEXT__DATABASE__URL=postgres://postgres:postgres@db:5432/spore_db
-    command: ["./lambda_next"]
-
   # Lambda Server - Testnet
   lambda-testnet:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        RUST_IMAGE: ${RUST_IMAGE:-rust:1.85-slim}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-debian:bookworm-slim}
     container_name: lambda-testnet
     depends_on:
       db:
@@ -72,17 +61,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+      args:
+        RUST_IMAGE: ${RUST_IMAGE:-rust:1.85-slim}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-debian:bookworm-slim}
     container_name: spore-api-server
     depends_on:
       db:
         condition: service_healthy
     restart: always
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       - ./config:/app/config
     environment:
       - LAMBDA_NEXT__DATABASE__URL=postgres://postgres:postgres@db:5432/spore_db
 
 volumes:
-  postgres_data: 
+  postgres_data:
+    name: "lambda"

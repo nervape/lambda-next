@@ -4,9 +4,6 @@ use molecule::prelude::*;
 use serde_json::Value;
 use spore_types::{generated::spore::SporeData, NativeNFTData};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
 use std::sync::{Arc, Mutex as StdMutex};
 use tracing::{debug, error, info, trace, warn};
 
@@ -72,12 +69,6 @@ impl SporeCache {
 // Global cache instance
 lazy_static! {
     static ref SPORE_CACHE: Arc<StdMutex<SporeCache>> = Arc::new(StdMutex::new(SporeCache::new()));
-}
-
-// Global cache for Type IDs loaded from files
-lazy_static! {
-    static ref TYPE_ID_FILE_CACHE: StdMutex<HashMap<String, Vec<String>>> =
-        StdMutex::new(HashMap::new());
 }
 
 /// Extract the Type ID from a cell
@@ -162,130 +153,6 @@ pub fn extract_cluster_id(spore_data: &NativeNFTData) -> Option<String> {
     })
 }
 
-/// Loads Type IDs from a file, supporting two formats:
-/// 1. Plain text format: One Type ID per line, lines starting with # are comments
-/// 2. JSON array format: Objects with typeInfo.args containing Type IDs
-fn load_type_ids_from_file(
-    file_path: &str,
-) -> std::result::Result<Vec<String>, Box<dyn std::error::Error>> {
-    // Check if we already have this file in cache
-    {
-        let cache = TYPE_ID_FILE_CACHE.lock().unwrap();
-        if let Some(type_ids) = cache.get(file_path) {
-            info!(
-                "Using cached Type IDs for file '{}' ({} entries)",
-                file_path,
-                type_ids.len()
-            );
-            return Ok(type_ids.clone());
-        }
-    }
-
-    // Not in cache, load from file
-    info!("Loading Type IDs from file '{}' (first time)", file_path);
-    let path = Path::new(file_path);
-    let file = File::open(path)?;
-
-    let type_ids = if file_path.to_lowercase().ends_with(".json") {
-        info!("Detected JSON format for Type IDs file: {}", file_path);
-        load_type_ids_from_json(file)?
-    } else {
-        // Use the existing plain text format parser
-        load_type_ids_from_text(file)?
-    };
-
-    // Add to cache for future use
-    {
-        let mut cache = TYPE_ID_FILE_CACHE.lock().unwrap();
-        cache.insert(file_path.to_string(), type_ids.clone());
-        info!(
-            "Cached {} Type IDs from file '{}'",
-            type_ids.len(),
-            file_path
-        );
-    }
-
-    Ok(type_ids)
-}
-
-/// Loads Type IDs from a plain text file (one per line, # for comments)
-fn load_type_ids_from_text(
-    file: File,
-) -> std::result::Result<Vec<String>, Box<dyn std::error::Error>> {
-    let reader = BufReader::new(file);
-    let mut type_ids = Vec::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        let trimmed = line.trim();
-
-        // Skip empty lines and comments
-        if !trimmed.is_empty() && !trimmed.starts_with('#') {
-            type_ids.push(trimmed.to_string());
-        }
-    }
-
-    Ok(type_ids)
-}
-
-/// Loads Type IDs from a JSON file
-/// Expects either an array of Type IDs as strings, or
-/// an array of objects with typeInfo.args containing the Type IDs
-fn load_type_ids_from_json(
-    file: File,
-) -> std::result::Result<Vec<String>, Box<dyn std::error::Error>> {
-    let reader = BufReader::new(file);
-    let json: Value = serde_json::from_reader(reader)?;
-
-    let mut type_ids = Vec::new();
-
-    // Check if it's a JSON array
-    if let Some(array) = json.as_array() {
-        for item in array {
-            if let Some(type_id) = extract_type_id_from_json(item) {
-                type_ids.push(type_id);
-            }
-        }
-    } else if let Some(type_id) = extract_type_id_from_json(&json) {
-        // Single object case
-        type_ids.push(type_id);
-    } else {
-        return Err("Invalid JSON format: expected array of objects with typeInfo.args".into());
-    }
-
-    info!("Loaded {} Type IDs from JSON file", type_ids.len());
-    Ok(type_ids)
-}
-
-/// Extracts a Type ID from a JSON object
-/// Supports two formats:
-/// 1. Direct string (the Type ID itself)
-/// 2. Object with typeInfo.args field containing the Type ID
-fn extract_type_id_from_json(item: &Value) -> Option<String> {
-    // Case 1: If item is a string, use it directly
-    if let Some(type_id) = item.as_str() {
-        return Some(type_id.to_string());
-    }
-
-    // Case 2: Look for sporeId directly
-    if let Some(spore_id) = item.get("sporeId") {
-        if let Some(type_id) = spore_id.as_str() {
-            return Some(type_id.to_string());
-        }
-    }
-
-    // Case 3: Look for typeInfo.args structure
-    if let Some(type_info) = item.get("typeInfo") {
-        if let Some(args) = type_info.get("args") {
-            if let Some(type_id) = args.as_str() {
-                return Some(type_id.to_string());
-            }
-        }
-    }
-
-    None
-}
-
 /// Filter cells based on configured criteria
 pub fn apply_filter(
     cells: Vec<Value>,
@@ -295,45 +162,7 @@ pub fn apply_filter(
     let cells_len = cells.len();
     debug!("Applying filter '{}' to {} cells", filter.name, cells_len);
 
-    // Extract Type IDs from the filter
-    let mut type_ids = filter.type_ids.clone();
-
-    // Add Type IDs from file if configured
-    if filter.filter_by_type_ids && filter.type_ids_file.is_some() {
-        let file_path = filter.type_ids_file.as_ref().unwrap();
-        if !file_path.is_empty() {
-            match load_type_ids_from_file(file_path) {
-                Ok(file_type_ids) => {
-                    debug!(
-                        "Adding {} Type IDs from file '{}'",
-                        file_type_ids.len(),
-                        file_path
-                    );
-                    type_ids.extend(file_type_ids);
-                }
-                Err(e) => {
-                    error!("Failed to load Type IDs from file '{}': {}", file_path, e);
-                }
-            }
-        }
-    }
-
-    // Create a set for faster lookup of Type IDs
-    let type_id_set: std::collections::HashSet<String> = if filter.filter_by_type_ids {
-        type_ids.into_iter().collect()
-    } else {
-        std::collections::HashSet::new()
-    };
-
-    // Create a set for excluded cluster IDs for faster lookup
-    let exclude_cluster_id_set: std::collections::HashSet<String> =
-        filter.exclude_cluster_ids.iter().cloned().collect();
-
-    let cluster_id_filter = if filter.filter_by_cluster {
-        Some(filter.cluster_id.clone())
-    } else {
-        None
-    };
+    let cluster_id_filter = &filter.cluster_id;
 
     let mut filtered_cells = Vec::new();
 
@@ -347,18 +176,6 @@ pub fn apply_filter(
                 continue;
             }
         };
-
-        // Check if this cell's Type ID is in our filter set
-        let type_id_matches = if filter.filter_by_type_ids {
-            type_id_set.contains(&type_id)
-        } else {
-            true
-        };
-
-        // Skip if Type ID doesn't match
-        if !type_id_matches {
-            continue;
-        }
 
         // Decode the cell data - Always decode basic spore data regardless of skip_decoding
         let spore_data = match decode_spore_data(&cell) {
@@ -375,29 +192,10 @@ pub fn apply_filter(
             None => None,
         };
 
-        // Check if this cell's cluster ID is in the exclude list
-        if let Some(cell_cluster_id) = &cluster_id {
-            if !exclude_cluster_id_set.is_empty()
-                && exclude_cluster_id_set.contains(cell_cluster_id)
-            {
-                trace!(
-                    "Skipping cell with excluded cluster ID: {}",
-                    cell_cluster_id
-                );
-                continue;
-            }
-        }
-
         // Check if this cell's cluster ID matches our filter
-        let cluster_id_matches = if let Some(filter_cluster_id) = &cluster_id_filter {
-            if let Some(cell_cluster_id) = &cluster_id {
-                cell_cluster_id == filter_cluster_id
-            } else {
-                false
-            }
-        } else {
-            true
-        };
+        let cluster_id_matches = cluster_id
+            .as_ref()
+            .is_some_and(|cell_cluster_id| cell_cluster_id == cluster_id_filter);
 
         // Skip if cluster ID doesn't match
         if !cluster_id_matches {
@@ -563,27 +361,16 @@ pub async fn process_single_spore(
                             "DOB spore is fully populated - performing partial update for: {}",
                             type_id
                         );
-                        if let Err(e) = db
-                            .update_spore_owner_capacity(
-                                type_id, &owner, &capacity, &tx_hash, index,
-                            )
+                        db.update_spore_owner_capacity(type_id, &owner, &capacity, &tx_hash, index)
                             .await
-                        {
-                            error!(
-                                "Failed to update owner/capacity for spore {}: {}",
-                                type_id, e
-                            );
-                        }
+                            .map_err(|e| anyhow!("failed to update spore {}: {}", type_id, e))?;
                         return Ok(());
                     }
                     Ok(false) => {
                         // DOB spore exists but missing some data - proceed with full update
                         debug!("DOB spore needs full update: {}", type_id);
                     }
-                    Err(e) => {
-                        // Error checking DOB status - log and proceed with regular processing
-                        error!("Error checking DOB spore status: {}", e);
-                    }
+                    Err(e) => return Err(anyhow!("failed to check DOB spore {}: {}", type_id, e)),
                 }
             }
             // Situation #2: Generic spore (non-DOB)
@@ -596,27 +383,16 @@ pub async fn process_single_spore(
                             "Generic spore exists - performing partial update for: {}",
                             type_id
                         );
-                        if let Err(e) = db
-                            .update_spore_owner_capacity(
-                                type_id, &owner, &capacity, &tx_hash, index,
-                            )
+                        db.update_spore_owner_capacity(type_id, &owner, &capacity, &tx_hash, index)
                             .await
-                        {
-                            error!(
-                                "Failed to update owner/capacity for spore {}: {}",
-                                type_id, e
-                            );
-                        }
+                            .map_err(|e| anyhow!("failed to update spore {}: {}", type_id, e))?;
                         return Ok(());
                     }
                     Ok(None) => {
                         // Generic spore doesn't exist - proceed with full update
                         debug!("Generic spore needs full insert: {}", type_id);
                     }
-                    Err(e) => {
-                        // Error checking spore status - log and proceed with regular processing
-                        error!("Error checking generic spore status: {}", e);
-                    }
+                    Err(e) => return Err(anyhow!("failed to check spore {}: {}", type_id, e)),
                 }
             }
         } else {
@@ -643,9 +419,9 @@ async fn process_regular_spore(
     if let Some(db) = db {
         if let Some(spore_data) = cell.to_spore_data() {
             debug!("Storing spore in database: {}", spore_data.id);
-            if let Err(e) = db.upsert_spore(&spore_data).await {
-                error!("Failed to store spore in database: {}", e);
-            }
+            db.upsert_spore(&spore_data)
+                .await
+                .map_err(|e| anyhow!("failed to store spore {}: {}", spore_data.id, e))?;
         }
     }
 
@@ -664,23 +440,9 @@ pub async fn process_spore_cells(
     // First, identify DOB spores that need decoding
     let config =
         crate::config::Config::load().map_err(|e| anyhow!("Failed to load config: {}", e))?;
-    let skip_decoding = config
-        .spore_filters
-        .iter()
-        .find(|f| f.enabled)
-        .map_or(false, |f| f.skip_decoding);
-
-    // If skip_decoding is true, log that we'll skip DOB decoding (but still process basic spore data)
-    if skip_decoding {
-        debug!("skip_decoding is enabled - will skip DOB decoding but process basic spore data");
-    }
-
     // Separate DOB spores that need decoding
     let mut dob_spores = Vec::new();
-    if !skip_decoding
-        && config.dob_decoder.is_some()
-        && config.dob_decoder.as_ref().unwrap().enabled
-    {
+    if config.dob_decoder.is_some() && config.dob_decoder.as_ref().unwrap().enabled {
         for (index, cell) in cells.iter().enumerate() {
             if let Some(data) = &cell.spore_data {
                 // Only process DOB spores that haven't been decoded yet
@@ -743,10 +505,9 @@ pub async fn process_spore_cells(
                 );
 
                 // Process the individual cell with decoded DOB data if available
-                if let Err(e) = process_single_spore_with_dob(cell, db, &decoded_results).await {
-                    warn!("Error processing spore cell {}: {}", index, e);
-                    // Continue processing other cells
-                }
+                process_single_spore_with_dob(cell, db, &decoded_results)
+                    .await
+                    .map_err(|e| anyhow!("failed to process spore cell {}: {}", index, e))?;
             }
             None => {
                 // This case should be rare now that we're always decoding basic spore data
@@ -798,49 +559,27 @@ async fn process_single_spore_with_dob(
                         "Updating spore in database with DOB decode output: {}",
                         spore_data.id
                     );
-                    if let Err(e) = db.upsert_spore(&spore_data).await {
-                        error!(
-                            "Failed to update spore in database with DOB decode output: {}",
+                    db.upsert_spore(&spore_data).await.map_err(|e| {
+                        anyhow!(
+                            "failed to store DOB decode output for {}: {}",
+                            spore_data.id,
                             e
-                        );
-                    }
+                        )
+                    })?;
                 }
+            } else if let Err(error) = dob_result {
+                // A decoder failure must not block the block-range checkpoint. The basic
+                // Spore data has already been stored by process_single_spore above; keep
+                // its DOB output empty and continue with the remaining cells.
+                warn!(
+                    type_id = %type_id,
+                    error = %error,
+                    "DOB decoding failed; stored basic Spore data and continuing"
+                );
             }
         }
     }
 
-    Ok(())
-}
-
-/// Initialize the Type ID cache by preloading all files specified in filter configurations
-pub fn preload_type_id_files(filters: &[SporeFilterConfig]) -> Result<()> {
-    for filter in filters {
-        if let Some(file_path) = &filter.type_ids_file {
-            if !file_path.is_empty() {
-                match load_type_ids_from_file(file_path) {
-                    Ok(type_ids) => {
-                        info!(
-                            "Preloaded {} Type IDs from file '{}'",
-                            type_ids.len(),
-                            file_path
-                        );
-                    }
-                    Err(err) => {
-                        error!(
-                            "Failed to preload Type IDs from file '{}': {}",
-                            file_path, err
-                        );
-                        // Convert the box error to anyhow::Error
-                        return Err(anyhow!(
-                            "Failed to load Type IDs from {}: {}",
-                            file_path,
-                            err
-                        ));
-                    }
-                }
-            }
-        }
-    }
     Ok(())
 }
 

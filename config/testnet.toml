@@ -1,34 +1,141 @@
-[websocket]
-url = "wss://ckb-testnet-sub-ws.nervape.com"  # WebSocket URL for CKB node
-reconnect_interval = 5000    # milliseconds
-ping_interval = 30000        # milliseconds
+[rpc]
+urls = [
+    "https://testnet.ckb.dev/",
+    "https://testnet.ckbapp.dev/"
+]
+connect_timeout_secs = 5
+request_timeout_secs = 30
+max_retries = 2
+retry_interval_millis = 1000
 
 [ckb]
-type_script_code_hash = "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d"  # Example code hash (Spore)
-type_script_hash_type = "data1"     # Can be "type" or "data1"
-query_limit = 300                   # Number of cells to fetch per query 
-query_interval_secs = 10            # Number of seconds to wait between queries
-network_type = "testnet"            # Network type: "mainnet", "testnet", or "devnet"
+type_script_code_hash = "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d"
+type_script_hash_type = "data1"
+query_limit = 300
+query_interval_secs = 60
+network_type = "testnet"
+sync_start_block = 10222279
+confirmations = 12
+overlap_blocks = 24
+block_batch_size = 100000
 
-# Database configuration
 [database]
-enabled = true  # Set to true to enable database storage
-url = "postgres://postgres:postgres@db:5432/spore_db"  # PostgreSQL connection string for Docker
-max_connections = 5  # Maximum number of connections in the pool
+enabled = true
+url = "postgres://postgres:postgres@db:5432/spore_db"
+max_connections = 5
 
-# DOB decoder configuration
 [dob_decoder]
-enabled = true  # Set to true to enable DOB decoding
-url = "https://dev-api.nervape.com/decoder"  # DOB decoder JSON-RPC endpoint
-batch_size = 50  # Maximum number of spores to decode in a single batch request
+enabled = true
+url = "https://dev-api.nervape.com/decoder"
+batch_size = 50
 
-[[spore_filters]]
-name = "Generic Filter"      
-enabled = true                      
-filter_by_cluster = false            
-cluster_id = ""                      
-filter_by_type_ids = false
-type_ids = []                        # No inline Type IDs, all from JSON file
-type_ids_file = "" # JSON file with Type IDs from typeInfo.args
-skip_decoding = false
-exclude_cluster_ids = []             # List of cluster IDs to exclude for performance
+[[spore_sync.clusters]]
+cluster_id = "0x7256076bed1e37e21b1dfe2117b27534573ffcc13a95c3d2716a76727589c5a1"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x868660314fc3715d31313dbb8b4f6c2f7ef9f4f15ad8e2f66e4a3b53cc2ee5a3"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x03e199ef2f77f4796c3a2a0889335f95ce1889108e91add0d5741f54fc3ff1b1"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x3db84646337962495b8263695dca85c64dd341067b636e8b86269e71b0283997"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x472248c620a63d19ff9e0f57788ca34861c70b2c655f4943c140ad7d45174ef9"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x6becd6a3ab94814e7bc6221f1208a715e74e94308f81fc8e46e793a3cd925c85"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x08f71890cb84e492b5a6aaf4bdc0f25e714dd8b8540126f1a9328f0ece7f3f6b"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0xf923785f4f44b808c3e6655e66c7d8bb0fbec0e9507f3143734ed67799be0f86"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x797989888e0d93294d777ce7e2a2b8b9f4e61b6be0190f70d08adf6ef7eea151"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0xc3708adea7e27e4071bbd70476b5f1a24b0570b0fff5d2e893c0957dbc74af7d"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x8bba70c0a8537af6e7b022663846e194ba159c6f60e45cb66546b1c45d18eb38"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x5c01fcaa8be8addda4784868396860deb88c0fcab5dd845364e6e9569e2d6f32"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x154647d35de740d1fe54becdcedf493108ec83232cd279e68befd38593105aeb"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0xa9f30dbe725569cbb969530c06f74f344beebca9bfccd7687e12248198f764cd"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x098d8c12a946d67244fa62461b06c56189b174259bc3a8520e72a826a83706f7"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x5f5968575f8f8187eea524d83db803be4608e496752ad46126337f7226f3eb77"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x5032194bcd8ba54743b9e2ac5eea24f50f1c2397e26b702bd2493b0a95603e0f"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x4b030ec043ff2ba0c26a6244193dc33880e11749a210cd0538998a9d9b5c9139"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x5390083f88da08748a7198a4194c0601293a1ce3c54a5c74392173c5f2acce44"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0xf5f2cb724a590145952bf29d2365a12833717515977cf01006bea735fa4d1cf9"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x1fd04c70dfb511e06803804670550a49a8fc77bb734d7d641a68ab9b1b35d846"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x8c5f1edc2543370f0a8ebeeb27427c28cd01e850d4dacc430b5b78193457b27a"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x443613c35efde5f673b2a1cdb850eb57517f4828ca44ba1a2f6dd52923086389"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0xe587855cc4055f1a7c533b996d7d0951830d563da64b783e73650c0fd316a47f"
+sync_start_block = 14227966
+
+[[spore_sync.clusters]]
+cluster_id = "0x9db29184396534d6949498d33fcd1a0b2c9f3221f778b196899f3c7304c4e197"
+sync_start_block = 14227966
+
+# nervape testnet cluster
+[[spore_sync.clusters]]
+cluster_id = "0x2e16a4612d6fcdf76f5acb11fdd01c79a1f44acec5589605ca7a908fc83b9e03"
+sync_start_block = 13018397
+
+
+# nervape testnet cluster
+[[spore_sync.clusters]]
+cluster_id = "0xcd4ca328b5511751bac6a7c1d2884eedb7957d886c9f37709b7ab8595c872766"
+sync_start_block = 21515419

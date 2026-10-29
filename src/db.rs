@@ -36,6 +36,13 @@ pub struct DbSporeData {
     pub network_type: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveSporeOutPoint {
+    pub id: String,
+    pub tx_hash: String,
+    pub index: u32,
+}
+
 /// PostgreSQL database interface for Spore data
 pub struct SporeDb {
     pool: Pool<Postgres>,
@@ -77,7 +84,31 @@ impl SporeDb {
                 owner TEXT NOT NULL,
                 capacity TEXT NOT NULL,
                 render_output TEXT,
-                dob_content JSONB
+                dob_content JSONB,
+                status TEXT NOT NULL DEFAULT 'live'
+            )
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE spores ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'live'
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS cluster_sync_state (
+                network_type TEXT NOT NULL,
+                scope_key TEXT NOT NULL,
+                last_scanned_block BIGINT NOT NULL,
+                last_block_hash TEXT,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (network_type, scope_key)
             )
             "#,
         )
@@ -385,6 +416,102 @@ impl SporeDb {
         .await?;
 
         Ok(())
+    }
+
+    pub async fn find_live_spores_by_outpoints(
+        &self,
+        network_type: &str,
+        cluster_ids: &[String],
+        outpoints: &[(String, u32)],
+    ) -> Result<Vec<LiveSporeOutPoint>, sqlx::Error> {
+        if outpoints.is_empty() || cluster_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = QueryBuilder::new(
+            "SELECT id, tx_hash, index FROM spores WHERE status = 'live' AND network_type = ",
+        );
+        builder.push_bind(network_type);
+        builder.push(" AND cluster_id = ANY(");
+        builder.push_bind(cluster_ids);
+        builder.push(") AND (");
+        for (position, (tx_hash, index)) in outpoints.iter().enumerate() {
+            if position > 0 {
+                builder.push(" OR ");
+            }
+            builder.push("(tx_hash = ");
+            builder.push_bind(tx_hash);
+            builder.push(" AND index = ");
+            builder.push_bind(*index as i32);
+            builder.push(")");
+        }
+        builder.push(")");
+
+        builder
+            .build()
+            .map(|row: sqlx::postgres::PgRow| LiveSporeOutPoint {
+                id: row.get("id"),
+                tx_hash: row.get("tx_hash"),
+                index: row.get::<i32, _>("index") as u32,
+            })
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    pub async fn mark_spore_burned(
+        &self,
+        network_type: &str,
+        id: &str,
+        expected_tx_hash: &str,
+        expected_index: u32,
+        burn_tx_hash: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            UPDATE spores
+            SET status = 'burned', tx_hash = $5
+            WHERE network_type = $1 AND id = $2 AND tx_hash = $3 AND index = $4
+              AND status = 'live'
+            "#,
+        )
+        .bind(network_type)
+        .bind(id)
+        .bind(expected_tx_hash)
+        .bind(expected_index as i32)
+        .bind(burn_tx_hash)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn advance_live_spore_outpoint(
+        &self,
+        network_type: &str,
+        id: &str,
+        expected_tx_hash: &str,
+        expected_index: u32,
+        new_tx_hash: &str,
+        new_index: u32,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            UPDATE spores
+            SET tx_hash = $5, index = $6
+            WHERE network_type = $1 AND id = $2 AND tx_hash = $3 AND index = $4
+              AND status = 'live'
+            "#,
+        )
+        .bind(network_type)
+        .bind(id)
+        .bind(expected_tx_hash)
+        .bind(expected_index as i32)
+        .bind(new_tx_hash)
+        .bind(new_index as i32)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
     }
 
     /// Check if a spore record is fully populated with DOB data
@@ -710,6 +837,54 @@ impl SporeDb {
 
         // Update schema for network_type
         self.update_schema_for_network().await?;
+
+        Ok(())
+    }
+
+    pub async fn get_cluster_sync_state(
+        &self,
+        network_type: &str,
+        scope_key: &str,
+    ) -> Result<Option<(u64, Option<String>)>, sqlx::Error> {
+        let row: Option<(i64, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT last_scanned_block, last_block_hash
+            FROM cluster_sync_state
+            WHERE network_type = $1 AND scope_key = $2
+            "#,
+        )
+        .bind(network_type)
+        .bind(scope_key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|(block, hash)| (block.max(0) as u64, hash)))
+    }
+
+    pub async fn update_cluster_sync_state(
+        &self,
+        network_type: &str,
+        scope_key: &str,
+        last_scanned_block: u64,
+        last_block_hash: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO cluster_sync_state
+                (network_type, scope_key, last_scanned_block, last_block_hash)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (network_type, scope_key) DO UPDATE SET
+                last_scanned_block = EXCLUDED.last_scanned_block,
+                last_block_hash = EXCLUDED.last_block_hash,
+                updated_at = NOW()
+            "#,
+        )
+        .bind(network_type)
+        .bind(scope_key)
+        .bind(last_scanned_block as i64)
+        .bind(last_block_hash)
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }

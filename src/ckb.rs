@@ -1,27 +1,34 @@
 use ckb_jsonrpc_types::Uint32;
-use futures::SinkExt;
+use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
 use std::error::Error;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio_tungstenite::tungstenite::protocol::Message;
-use tracing::{debug, error, field, info, instrument, warn};
-use uuid::Uuid;
+use tokio::time::{sleep, Duration};
+use tracing::{debug, info, instrument, warn};
+
+use crate::config::RpcConfig;
 
 #[derive(Debug)]
 pub enum CkbError {
+    Config(String),
+    Http(String),
+    HttpStatus { status: StatusCode, body: String },
     JsonRpcError(String),
     ParseError(String),
-    WebSocketError(String),
 }
 
 impl fmt::Display for CkbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            CkbError::Config(e) => write!(f, "CKB RPC configuration error: {}", e),
+            CkbError::Http(e) => write!(f, "CKB RPC HTTP error: {}", e),
+            CkbError::HttpStatus { status, body } => {
+                write!(f, "CKB RPC returned HTTP {}: {}", status, body)
+            }
             CkbError::JsonRpcError(e) => write!(f, "CKB JSON-RPC error: {}", e),
-            CkbError::ParseError(e) => write!(f, "Parse error: {}", e),
-            CkbError::WebSocketError(e) => write!(f, "WebSocket error: {}", e),
+            CkbError::ParseError(e) => write!(f, "CKB RPC parse error: {}", e),
         }
     }
 }
@@ -30,196 +37,267 @@ impl Error for CkbError {}
 
 pub type Result<T> = std::result::Result<T, CkbError>;
 
-// Enum for script types
-pub enum ScriptType {
-    Lock,
-    Type,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexerTip {
+    pub block_hash: String,
+    pub block_number: u64,
 }
 
-impl ToString for ScriptType {
-    fn to_string(&self) -> String {
-        match self {
-            ScriptType::Lock => "lock".to_string(),
-            ScriptType::Type => "type".to_string(),
-        }
-    }
-}
-
-// Enum for outputs validator
-pub enum OutputsValidator {
-    Default,
-    PassAll,
-}
-
-impl ToString for OutputsValidator {
-    fn to_string(&self) -> String {
-        match self {
-            OutputsValidator::Default => "default".to_string(),
-            OutputsValidator::PassAll => "passall".to_string(),
-        }
-    }
-}
-
-// CKB client that uses WebSocket
 #[derive(Clone)]
 pub struct CkbClient {
-    writer: Arc<Mutex<WsWriter>>,
-    id_counter: Arc<Mutex<u64>>,
+    client: Client,
+    rpc_urls: Arc<Vec<String>>,
+    id_counter: Arc<AtomicU64>,
+    max_retries: u32,
+    retry_interval: Duration,
 }
 
-// Type alias for the WebSocket writer
-type WsWriter = futures::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-    Message,
->;
-
 impl CkbClient {
-    /// Create a new CKB client with a direct writer
-    pub fn new(writer: WsWriter) -> Self {
-        Self {
-            writer: Arc::new(Mutex::new(writer)),
-            id_counter: Arc::new(Mutex::new(1)),
+    pub fn new(config: &RpcConfig) -> Result<Self> {
+        if config.urls.is_empty() {
+            return Err(CkbError::Config(
+                "at least one HTTP RPC URL must be configured".to_string(),
+            ));
         }
+
+        for url in &config.urls {
+            let parsed = reqwest::Url::parse(url)
+                .map_err(|e| CkbError::Config(format!("invalid RPC URL '{}': {}", url, e)))?;
+            if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                return Err(CkbError::Config(format!(
+                    "RPC URL '{}' must use http or https",
+                    url
+                )));
+            }
+        }
+
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(config.connect_timeout_secs))
+            .timeout(Duration::from_secs(config.request_timeout_secs))
+            .build()
+            .map_err(|e| CkbError::Http(e.to_string()))?;
+
+        Ok(Self {
+            client,
+            rpc_urls: Arc::new(config.urls.clone()),
+            id_counter: Arc::new(AtomicU64::new(1)),
+            max_retries: config.max_retries,
+            retry_interval: Duration::from_millis(config.retry_interval_millis),
+        })
     }
 
-    /// Create a new CKB client with an already shared writer
-    pub fn with_shared_writer(writer: Arc<Mutex<WsWriter>>) -> Self {
-        Self {
-            writer,
-            id_counter: Arc::new(Mutex::new(1)),
-        }
+    pub fn rpc_urls(&self) -> &[String] {
+        self.rpc_urls.as_slice()
     }
 
-    async fn get_next_id(&self) -> u64 {
-        // We still increment the counter for debugging/logging purposes
-        let mut counter = self.id_counter.lock().await;
-        let _id = *counter;
-        *counter += 1;
-
-        // Generate a UUID v4 (random)
-        let uuid = Uuid::new_v4();
-
-        // Convert the first 8 bytes of the UUID to a u64
-        // This maintains the uniqueness while providing a numeric ID
-        let uuid_bytes = uuid.as_bytes();
-        let mut uuid_u64 = 0u64;
-
-        // Combine the first 8 bytes into a u64
-        for i in 0..8 {
-            uuid_u64 = (uuid_u64 << 8) | (uuid_bytes[i] as u64);
-        }
-
-        // Make sure the ID is never zero (JSON-RPC requires non-zero IDs)
-        if uuid_u64 == 0 {
-            uuid_u64 = 1;
-        }
-
-        debug!("Generated request ID from UUID: {} ({})", uuid_u64, uuid);
-        uuid_u64
+    fn get_next_id(&self) -> u64 {
+        self.id_counter.fetch_add(1, Ordering::Relaxed)
     }
 
-    /// Search for cells based on type script code hash
-    #[instrument(skip(self), fields(code_hash = %code_hash, hash_type = %hash_type, limit = %limit))]
+    #[instrument(skip(self), fields(rpc_url = %rpc_url, code_hash = %code_hash, hash_type = %hash_type, limit = %limit))]
     pub async fn get_cells_by_type_script_code_hash(
         &self,
+        rpc_url: &str,
         code_hash: &str,
         hash_type: &str,
         limit: u32,
         cursor: Option<&str>,
+        block_range: (u64, u64),
     ) -> Result<Value> {
-        if let Some(cursor_value) = &cursor {
-            debug!(cursor = %cursor_value, "Continuing query with cursor");
+        if let Some(cursor_value) = cursor {
+            debug!(cursor = %cursor_value, "Continuing HTTP cell query");
         } else {
-            info!("Starting new cell query");
+            info!(rpc_url = %rpc_url, "Starting HTTP cell query");
         }
 
-        // Create search key using script type enum
         let search_key = json!({
             "script": {
                 "code_hash": code_hash,
                 "hash_type": hash_type,
                 "args": "0x"
             },
-            "script_type": ScriptType::Type.to_string(),
+            "script_type": "type",
+            "script_search_mode": "prefix",
+            "filter": {
+                "block_range": [
+                    format!("0x{:x}", block_range.0),
+                    format!("0x{:x}", block_range.1)
+                ]
+            },
+            "with_data": true
         });
 
-        // Prepare the JSON-RPC request parameters
-        let params = json!([
-            search_key,
-            "asc", // Order::Asc
-            Uint32::from(limit),
-            cursor,
-            OutputsValidator::Default.to_string()
-        ]);
-
-        // Execute RPC call
-        debug!("Executing get_cells RPC call");
-        self.call_rpc("get_cells", params).await
+        // The integrated CKB Indexer accepts four get_cells parameters.
+        let params = json!([search_key, "asc", Uint32::from(limit), cursor]);
+        self.call_rpc_at(rpc_url, "get_cells", params).await
     }
 
-    /// Make a WebSocket RPC call
-    #[instrument(skip(self, params), fields(method = %method, id = field::Empty))]
-    pub async fn call_rpc(&self, method: &str, params: Value) -> Result<Value> {
-        let id = self.get_next_id().await;
-        tracing::Span::current().record("id", &id);
+    pub async fn get_indexer_tip(&self, rpc_url: &str) -> Result<IndexerTip> {
+        let result = self
+            .call_rpc_at(rpc_url, "get_indexer_tip", json!([]))
+            .await?;
+        let block_hash = result
+            .get("block_hash")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CkbError::ParseError("indexer tip has no block_hash".to_string()))?
+            .to_string();
+        let block_number = result
+            .get("block_number")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CkbError::ParseError("indexer tip has no block_number".to_string()))
+            .and_then(parse_hex_u64)?;
 
-        let request_body = json!({
-            "id": id,
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
-        });
+        Ok(IndexerTip {
+            block_hash,
+            block_number,
+        })
+    }
 
-        // Convert to string
-        let request_str = request_body.to_string();
+    pub async fn get_block_by_number(&self, rpc_url: &str, block_number: u64) -> Result<Value> {
+        let result = self
+            .call_rpc_at(
+                rpc_url,
+                "get_block_by_number",
+                json!([format!("0x{:x}", block_number)]),
+            )
+            .await?;
+        if result.is_null() {
+            return Err(CkbError::ParseError(format!(
+                "block {} was not found",
+                block_number
+            )));
+        }
+        Ok(result)
+    }
 
-        debug!("Sending JSON-RPC request: {}", request_str);
+    #[instrument(skip(self, params), fields(rpc_url = %rpc_url, method = %method))]
+    pub async fn call_rpc_at(&self, rpc_url: &str, method: &str, params: Value) -> Result<Value> {
+        let mut attempt = 0;
 
-        // Send the request through the WebSocket
-        let mut writer = self.writer.lock().await;
-        writer
-            .send(Message::Text(request_str.into()))
+        loop {
+            let request_body = json!({
+                "id": self.get_next_id(),
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": params,
+            });
+
+            match self.send_request(rpc_url, &request_body).await {
+                Ok(response) => return parse_json_rpc_response(response),
+                Err(error) if attempt < self.max_retries && error.is_retryable() => {
+                    attempt += 1;
+                    let delay = self.retry_interval.saturating_mul(attempt);
+                    warn!(
+                        rpc_url = %rpc_url,
+                        method = %method,
+                        attempt,
+                        delay_ms = delay.as_millis(),
+                        error = %error,
+                        "Retrying CKB HTTP RPC request"
+                    );
+                    sleep(delay).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    async fn send_request(&self, rpc_url: &str, body: &Value) -> Result<Value> {
+        let response = self
+            .client
+            .post(rpc_url)
+            .json(body)
+            .send()
             .await
-            .map_err(|e| {
-                error!("WebSocket send error: {}", e);
-                CkbError::WebSocketError(e.to_string())
-            })?;
+            .map_err(|e| CkbError::Http(e.to_string()))?;
 
-        // Note: The response will be handled by the websocket message handler
-        debug!("JSON-RPC request sent with ID: {}", id);
-        Ok(json!({"id": id}))
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(CkbError::HttpStatus { status, body });
+        }
+
+        response
+            .json::<Value>()
+            .await
+            .map_err(|e| CkbError::ParseError(e.to_string()))
     }
 
-    // Helper function to parse cells from get_cells response
-    #[instrument(skip(self, response))]
     pub fn parse_cells_response(&self, response: &Value) -> Result<(Vec<Value>, Option<String>)> {
-        debug!("Parsing get_cells response");
-
-        // Extract objects and next cursor from the response
         let objects = response
-            .get("result")
-            .and_then(|r| r.get("objects"))
-            .and_then(|o| o.as_array())
+            .get("objects")
+            .and_then(Value::as_array)
             .ok_or_else(|| {
-                let err =
-                    CkbError::ParseError("Invalid response format: missing 'objects' array".into());
-                error!("Parse error: {}", err);
-                err
+                CkbError::ParseError("invalid get_cells result: missing objects array".to_string())
             })?
             .clone();
 
         let last_cursor = response
-            .get("result")
-            .and_then(|r| r.get("last_cursor"))
-            .and_then(|c| c.as_str())
+            .get("last_cursor")
+            .and_then(Value::as_str)
             .map(String::from);
 
-        if let Some(cursor) = &last_cursor {
-            debug!(cells_count = %objects.len(), cursor = %cursor, "Found cells with next cursor");
-        } else {
-            debug!(cells_count = %objects.len(), "Found cells (no more pages)");
-        }
-
         Ok((objects, last_cursor))
+    }
+}
+
+impl CkbError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            CkbError::Http(_) => true,
+            CkbError::HttpStatus { status, .. } => {
+                *status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+            }
+            _ => false,
+        }
+    }
+}
+
+fn parse_json_rpc_response(response: Value) -> Result<Value> {
+    if let Some(error) = response.get("error") {
+        return Err(CkbError::JsonRpcError(error.to_string()));
+    }
+
+    response
+        .get("result")
+        .cloned()
+        .ok_or_else(|| CkbError::ParseError("JSON-RPC response is missing result".to_string()))
+}
+
+fn parse_hex_u64(value: &str) -> Result<u64> {
+    let value = value.strip_prefix("0x").unwrap_or(value);
+    u64::from_str_radix(value, 16)
+        .map_err(|e| CkbError::ParseError(format!("invalid hexadecimal block number: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_json_rpc_result() {
+        let response = json!({"jsonrpc": "2.0", "id": 1, "result": {"objects": []}});
+        assert_eq!(
+            parse_json_rpc_response(response).unwrap(),
+            json!({"objects": []})
+        );
+    }
+
+    #[test]
+    fn rejects_json_rpc_error() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32602, "message": "invalid params"}
+        });
+        assert!(matches!(
+            parse_json_rpc_response(response),
+            Err(CkbError::JsonRpcError(_))
+        ));
+    }
+
+    #[test]
+    fn parses_hex_block_number() {
+        assert_eq!(parse_hex_u64("0x10").unwrap(), 16);
     }
 }
