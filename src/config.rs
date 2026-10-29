@@ -67,7 +67,7 @@ pub struct CkbConfig {
 }
 
 fn default_confirmations() -> u64 {
-    12
+    6
 }
 
 fn default_overlap_blocks() -> u64 {

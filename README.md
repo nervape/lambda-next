@@ -106,7 +106,7 @@ query_limit = 300
 query_interval_secs = 60
 network_type = "mainnet"
 sync_start_block = 0
-confirmations = 12
+confirmations = 6
 overlap_blocks = 24
 block_batch_size = 100000
 ```
