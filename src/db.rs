@@ -556,6 +556,7 @@ impl SporeDb {
             FROM spores WHERE cluster_id = "
         );
         builder.push_bind(cluster_id);
+        builder.push(" AND status = 'live'");
 
         if let Some(network) = network_type {
             builder.push(" AND network_type = ");
@@ -913,7 +914,7 @@ impl SporeDb {
                         ELSE NULL
                     END) as dob_decode_output
                 FROM spores s
-                WHERE s.id = $1 AND s.network_type = $2
+                WHERE s.id = $1 AND s.network_type = $2 AND s.status = 'live'
                 "#
             )
             .bind(id)
@@ -954,7 +955,7 @@ impl SporeDb {
                         ELSE NULL
                     END) as dob_decode_output
                 FROM spores s
-                WHERE s.id = $1
+                WHERE s.id = $1 AND s.status = 'live'
                 "#
             )
             .bind(id)
